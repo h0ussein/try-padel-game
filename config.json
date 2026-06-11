@@ -1,0 +1,89 @@
+{
+  "cameras": [
+    {
+      "name": "cam1",
+      "source": "side1-1m.mp4",
+      "coverage": "left",
+      "court_polygon": [
+        [
+          490,
+          538
+        ],
+        [
+          1408,
+          537
+        ],
+        [
+          1858,
+          1029
+        ],
+        [
+          38,
+          1026
+        ]
+      ],
+      "homography": "calibration/cam1_H.npy",
+      "calibration": "calibration/cam1.npy"
+    },
+    {
+      "name": "cam2",
+      "source": "side2-1m.mp4",
+      "coverage": "right",
+      "court_polygon": [
+        [
+          489,
+          520
+        ],
+        [
+          1388,
+          507
+        ],
+        [
+          1892,
+          1028
+        ],
+        [
+          33,
+          1030
+        ]
+      ],
+      "homography": "calibration/cam2_H.npy",
+      "calibration": "calibration/cam2.npy"
+    }
+  ],
+  "court_real_size": [
+    20.0,
+    10.0
+  ],
+  "net_x": 10.0,
+  "overlap_zone": [
+    7.0,
+    13.0
+  ],
+  "tracker": "deep_eiou",
+  "use_reid": true,
+  "max_players": 4,
+  "reid_weights": "models/osnet_padel.pt",
+  "tracker_params": {
+    "track_high_thresh": 0.4,
+    "track_low_thresh": 0.1,
+    "new_track_thresh": 0.5,
+    "match_thresh": 0.8,
+    "track_buffer": 60,
+    "proximity_thresh": 0.5,
+    "appearance_thresh": 0.25
+  },
+  "model": "yolo11n-pose.pt",
+  "detection": {
+    "conf": 0.25,
+    "iou": 0.45,
+    "device": "cpu",
+    "imgsz": 640
+  },
+  "display": {
+    "width": 960,
+    "height": 540,
+    "loop_clips": true,
+    "show_fps": true
+  }
+}

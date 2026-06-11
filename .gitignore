@@ -1,0 +1,23 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Models / weights (downloaded or trained — not source)
+*.pt
+*.engine
+yolo11n-pose.pt
+
+# Calibration + per-session outputs
+calibration/*.npy
+output/
+data/unlabeled/
+data/labeled/
+
+# Large dev clips
+*.mp4
+*.mov
+*.avi
+
+# Logs
+*.log

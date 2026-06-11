@@ -1,0 +1,21 @@
+# Padel CV System — Python dependencies (Section 2.6 of the roadmap)
+# Install:  pip install -r requirements.txt
+#
+# NOTE: Deep-EIoU is a GitHub clone, NOT a pip package. It is added in Step 3:
+#   git clone https://github.com/hsiangwei0903/Deep-EIoU
+
+# --- Step 1: detection + skeleton ---
+ultralytics        # YOLOv11-Pose detection + 17-keypoint skeleton
+opencv-python      # video I/O, undistort, homography, overlays, minimap
+numpy              # angles, distances, arrays
+torch              # YOLO + ReID + action models (pulled in by ultralytics)
+
+# --- Step 3: tracking + ReID ---
+boxmot             # strong ReID trackers + OSNet, wired to YOLO detections
+torchreid          # OSNet ReID — fine-tune on padel
+
+# --- Step 10: reports ---
+fpdf2              # PDF reports
+
+# --- Optional: web dashboard ---
+flask              # web dashboard (optional)

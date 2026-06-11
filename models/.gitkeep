@@ -1,0 +1,2 @@
+# Models live here: yolo11n-pose.pt (auto-downloaded), OSNet ReID weights,
+# trained action model, and .engine (TensorRT) exports. Weights are gitignored.
