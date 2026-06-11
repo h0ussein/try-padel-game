@@ -20,19 +20,20 @@ import numpy as np
 
 from core.detector import PoseDetector
 from core.tracker import Tracker
-from utils import colors, court_roi, skeleton
+from utils import colors, court_roi, jersey, skeleton
 
 _OFFCOURT = (130, 130, 130)
 
 
 class CameraWorker(threading.Thread):
-    def __init__(self, cam_cfg, global_cfg, reid_extractor=None):
+    def __init__(self, cam_cfg, global_cfg, reid_extractor=None, players=None):
         super().__init__(daemon=True)
         self.cam_name = cam_cfg.get("name", "cam")
         self.source = cam_cfg["source"]
         self.cam_cfg = cam_cfg
         self.global_cfg = global_cfg
         self.reid = reid_extractor
+        self.players = players or []
         self.polygon = cam_cfg.get("court_polygon") or []
 
         self._lock = threading.Lock()
@@ -120,11 +121,17 @@ class CameraWorker(threading.Thread):
                 cv2.rectangle(frame, (x1, y1), (x2, y2), _OFFCOURT, 1)
                 cv2.circle(frame, (int(foot[0]), int(foot[1])), 5, (0, 0, 255), -1, cv2.LINE_AA)
 
-            # tracked players: stable color + ID + skeleton
-            for st in tracks:
+            # Jersey-color re-check: anchor each track to an enrolled player's NAME,
+            # so the label follows the jersey even when the tracker ID swaps.
+            track_jerseys = [jersey.jersey_color(frame, st.tlbr, st.kpts) for st in tracks]
+            names = (jersey.assign_names(track_jerseys, self.players)
+                     if self.players else [None] * len(tracks))
+
+            # tracked players: stable color + name/ID + skeleton
+            for idx, st in enumerate(tracks):
                 color = colors.color_for_id(st.track_id)
-                skeleton.draw_bbox(frame, st.tlbr, st.score, color=color,
-                                   label=f"ID {st.track_id}")
+                label = names[idx] if names[idx] else f"ID {st.track_id}"
+                skeleton.draw_bbox(frame, st.tlbr, st.score, color=color, label=label)
                 if st.kpts is not None:
                     skeleton.draw_skeleton(frame, st.kpts, color=color)
                     foot = court_roi.foot_point(st.tlbr, st.kpts)

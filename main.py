@@ -22,7 +22,7 @@ import numpy as np
 
 from core.detector import PoseDetector
 from core.pipeline import CameraWorker
-from utils import court_roi
+from utils import court_roi, enrollment
 from utils.reid import build_reid
 
 
@@ -117,7 +117,12 @@ def main():
         setup_court(cfg, args.config)
         return 0
 
-    for stub in ("minimap", "enroll", "collect", "save_report"):
+    players_path = cfg.get("players_registry", "players.json")
+    if args.enroll:
+        enrollment.enroll(cfg, players_path)
+        return 0
+
+    for stub in ("minimap", "collect", "save_report"):
         if getattr(args, stub):
             print(f"[note] --{stub.replace('_', '-')} is not implemented yet "
                   f"(later step). Running detection display.")
@@ -134,7 +139,14 @@ def main():
         print("[init] loading OSNet ReID (auto-downloads on first run)...")
         reid = build_reid(cfg)
 
-    workers = [CameraWorker(cam, cfg, reid_extractor=reid) for cam in cameras]
+    players = enrollment.load_players(players_path)
+    if players:
+        print(f"[init] loaded {len(players)} enrolled player(s) for jersey-color naming")
+    else:
+        print("[init] no enrolled players (run --enroll); labels fall back to ID n")
+
+    workers = [CameraWorker(cam, cfg, reid_extractor=reid, players=players)
+               for cam in cameras]
     for w in workers:
         w.start()
 

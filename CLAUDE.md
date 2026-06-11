@@ -50,8 +50,8 @@ core/ball.py         ball detection + speed                    [Step 9]
 core/report.py       session logging + JSON/PDF                [Step 10]
 utils/skeleton.py    COCO-17 drawing + HUD/FPS                 [Step 1 ✓]
 utils/court_roi.py   auto-detect/edit court polygon + foot filter [Step 2 ✓]
-utils/jersey.py      jersey color (HSV)                        [Step 4]
-utils/enrollment.py  player enrollment                         [Step 4]
+utils/jersey.py      jersey color (HSV) + name match           [Step 4 ✓]
+utils/enrollment.py  player enrollment → players.json          [Step 4 ✓]
 utils/homography.py  calibration + pixel→court mapping         [Step 5]
 utils/court_view.py  live top-down minimap                     [Step 5]
 utils/reid.py        OSNet embeddings (boxmot ReID)            [Step 3 ✓]
@@ -89,7 +89,18 @@ at local clips; in production it is the RTSP URL.
   display window (both feeds tiled — user preference). IDs are per-camera here; the same
   player gets one ID PER camera — that's unified into one global ID, and the global
   4-player cap enforced, by fusion in Step 6 (needs Step 5 shared-court homography first).
-- Steps 4–11: not started (stubs in place). Next: Step 4 (jersey color + enrollment).
+- **Step 4 — Jersey Color + Enrollment — DONE.** `utils/jersey.py`: dominant torso
+  color (HSV, sampled shoulders→hips via keypoints) → named color; `assign_names`
+  one-to-one matches tracks to enrolled players (scipy) so the NAME follows the jersey
+  even when the tracker ID swaps. `utils/enrollment.py`: `--enroll` plays one camera,
+  shows each player's jersey color, press a DIGIT + type a name → `players.json`.
+  Pipeline labels tracks by matched name (fallback `ID n`). NOTE: on this dim night
+  court jersey color is COARSE (reliably separates light/white/"gray" vs navy/"blue");
+  two same-team same-shirt players can't be split by jersey alone — that's what ReID +
+  court position + fusion are for. Saturation bar raised so warm-lit white isn't called
+  orange. Verified headless: per-player color is consistent across frames and names
+  re-match; could not test the interactive enroll keypress/console flow.
+- Steps 5–11: not started (stubs in place). Next: Step 5 (dual homography + minimap).
 
 ## How to run
 ```
@@ -97,6 +108,7 @@ python -m venv venv
 venv\Scripts\activate          # Windows
 pip install -r requirements.txt      # includes boxmot (OSNet ReID + lapx)
 python main.py --setup-court   # Step 2: drag court corners per camera, S=save
+python main.py --enroll        # Step 4: digit-key a player, type name -> players.json
 python main.py --show          # 'q' or ESC to quit
 ```
 `yolo11n-pose.pt` + the OSNet ReID weights auto-download on first run. CPU is the
@@ -114,3 +126,6 @@ Step 3: each feed shows stable per-player IDs (colored box + `ID n` + skeleton) 
 don't flicker; IDs are per-camera (both feeds number from 1 independently); note any
 net-exchange ID swaps — those are fixed by fusion in Step 6. Verified headless: cam1
 2 players → IDs [1,2] stable / 40 frames, cam2 3 players → [1,2,3] stable / 30 frames.
+Step 4: after `--enroll`, players are labeled by their real NAME in both feeds; the
+jersey color holds frame-to-frame, so when a tracker ID swaps the name re-attaches via
+the jersey re-check (vs flipping to `ID n`). Best with distinct, saturated shirts.
