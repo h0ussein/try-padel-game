@@ -5,8 +5,35 @@
       "jersey_color": "blue",
       "jersey_hsv": [
         111.0,
-        161.0,
-        125.0
+        164.0,
+        111.0
+      ]
+    },
+    {
+      "name": "0",
+      "jersey_color": "blue",
+      "jersey_hsv": [
+        112.0,
+        102.0,
+        92.0
+      ]
+    },
+    {
+      "name": "jeffrey",
+      "jersey_color": "gray",
+      "jersey_hsv": [
+        50.0,
+        5.0,
+        158.0
+      ]
+    },
+    {
+      "name": "blank",
+      "jersey_color": "blue",
+      "jersey_hsv": [
+        111.0,
+        155.0,
+        112.0
       ]
     }
   ]

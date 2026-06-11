@@ -1,21 +1,31 @@
 # Padel CV System — Python dependencies (Section 2.6 of the roadmap)
+# Pinned to the verified working environment: Python 3.13, Windows, CPU.
 # Install:  pip install -r requirements.txt
 #
-# NOTE: Deep-EIoU is a GitHub clone, NOT a pip package. It is added in Step 3:
-#   git clone https://github.com/hsiangwei0903/Deep-EIoU
+# NOTE: Deep-EIoU is VENDORED in core/trackers/ (boxmot does NOT ship Deep-EIoU).
+# OSNet ReID is provided at runtime by boxmot (osnet_x0_25_msmt17.pt auto-downloads
+# on first use), so the git clone of hsiangwei0903/Deep-EIoU is not required.
 
 # --- Step 1: detection + skeleton ---
-ultralytics        # YOLOv11-Pose detection + 17-keypoint skeleton
-opencv-python      # video I/O, undistort, homography, overlays, minimap
-numpy              # angles, distances, arrays
-torch              # YOLO + ReID + action models (pulled in by ultralytics)
+ultralytics==8.4.65        # YOLOv11-Pose detection + 17-keypoint skeleton
+opencv-python==4.13.0.92   # video I/O, undistort, homography, overlays, minimap
+numpy==2.4.6               # arrays, angles, distances
+torch==2.12.0              # YOLO + ReID + action models
+torchvision==0.27.0        # required by ultralytics/boxmot; pin to match torch
+scipy==1.17.1              # Kalman (linalg) + linear-assignment fallback + jersey match
 
-# --- Step 3: tracking + ReID ---
-boxmot             # strong ReID trackers + OSNet, wired to YOLO detections
-torchreid          # OSNet ReID — fine-tune on padel
+# --- Step 3: tracking (Deep-EIoU) + ReID ---
+boxmot==21.0.0             # OSNet ReID runtime (Deep-EIoU itself is vendored in core/trackers/)
+lapx==0.9.4                # lap.lapjv linear assignment used by core/trackers/matching.py
+# boxmot also pulls filterpy + gdown transitively — no need to list them explicitly
 
 # --- Step 10: reports ---
-fpdf2              # PDF reports
+fpdf2==2.8.7               # JSON + PDF session reports
 
 # --- Optional: web dashboard ---
-flask              # web dashboard (optional)
+flask==3.1.3               # Flask dual-view + minimap stream (optional)
+
+# --- Optional: OSNet fine-tuning on padel (Section 9 / Step 3) ---
+# The runtime OSNet comes from boxmot above. To FINE-TUNE OSNet, install the real
+# deep-person-reid from source (NOT the defunct PyPI `torchreid==0.2.5`):
+#   pip install git+https://github.com/KaiyangZhou/deep-person-reid.git
