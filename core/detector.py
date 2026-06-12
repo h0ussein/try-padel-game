@@ -27,13 +27,30 @@ class Detection:
 
 
 class PoseDetector:
-    def __init__(self, model_path, conf=0.25, iou=0.45, device="cpu", imgsz=640):
+    def __init__(self, model_path, conf=0.25, iou=0.45, device="cpu", imgsz=640,
+                 min_keypoints=0, min_aspect=0.0, kpt_conf=0.3):
         # YOLO() downloads the weights to the working dir on first use if absent.
         self.model = YOLO(model_path)
         self.conf = conf
         self.iou = iou
         self.device = device
         self.imgsz = imgsz
+        # person-plausibility filter (rejects chairs/objects mis-detected as people):
+        # keep a detection only if it has >= min_keypoints confident joints AND is at
+        # least as tall as it is wide (min_aspect = height/width). 0 disables a check.
+        self.min_keypoints = min_keypoints
+        self.min_aspect = min_aspect
+        self.kpt_conf = kpt_conf
+
+    def _is_person(self, det):
+        if self.min_keypoints and int((det.keypoints[:, 2] > self.kpt_conf).sum()) < self.min_keypoints:
+            return False
+        if self.min_aspect:
+            x1, y1, x2, y2 = det.bbox
+            w = float(x2) - float(x1)
+            if w > 0 and (float(y2) - float(y1)) / w < self.min_aspect:
+                return False
+        return True
 
     def detect(self, frame):
         """Run pose detection on one BGR frame. Returns list[Detection]."""
@@ -62,7 +79,9 @@ class PoseDetector:
             kpts = np.zeros((len(boxes), 17, 3), dtype=np.float32)
 
         for i in range(len(boxes)):
-            out.append(Detection(boxes[i], scores[i], kpts[i]))
+            det = Detection(boxes[i], scores[i], kpts[i])
+            if self._is_person(det):
+                out.append(det)
         return out
 
     @staticmethod

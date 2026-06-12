@@ -26,7 +26,7 @@ KPT_CONF_THRESH = 0.3       # only draw a joint/bone above this keypoint confide
 JOINT_COLOR = (0, 0, 255)   # red dots (BGR)
 
 
-def draw_skeleton(frame, keypoints, color=(0, 255, 0), kpt_radius=3, thickness=2):
+def draw_skeleton(frame, keypoints, color=(0, 255, 0), kpt_radius=4, thickness=3):
     """Draw bones + joints for one person's (17,3) keypoint array."""
     for a, b in SKELETON:
         xa, ya, ca = keypoints[a]
@@ -40,14 +40,15 @@ def draw_skeleton(frame, keypoints, color=(0, 255, 0), kpt_radius=3, thickness=2
 
 
 def draw_bbox(frame, bbox, score, color=(0, 255, 0), label=None):
-    """Draw a person bounding box with a small label."""
+    """Draw a person bounding box with a bold, readable label (survives downscaling)."""
     x1, y1, x2, y2 = (int(v) for v in bbox)
-    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
     text = label if label is not None else f"{score:.2f}"
-    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-    cv2.rectangle(frame, (x1, y1 - th - 6), (x1 + tw + 4, y1), color, -1)
-    cv2.putText(frame, text, (x1 + 2, y1 - 4),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+    fs, ft = 0.75, 2
+    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, fs, ft)
+    cv2.rectangle(frame, (x1, y1 - th - 12), (x1 + tw + 8, y1), color, -1)
+    cv2.putText(frame, text, (x1 + 4, y1 - 7),
+                cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 0, 0), ft, cv2.LINE_AA)
 
 
 def draw_hud(frame, cam_name, fps, n_players, n_total=None):

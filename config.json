@@ -6,24 +6,26 @@
       "coverage": "left",
       "court_polygon": [
         [
-          478,
-          532
+          494,
+          537
         ],
         [
-          1406,
-          546
+          1412,
+          537
         ],
         [
-          1840,
-          1002
+          1785,
+          942
         ],
         [
-          34,
-          1032
+          128,
+          939
         ]
       ],
       "homography": "calibration/cam1_H.npy",
-      "calibration": "calibration/cam1.npy"
+      "calibration": "calibration/cam1.npy",
+      "flip_x": false,
+      "flip_y": true
     },
     {
       "name": "cam2",
@@ -31,24 +33,26 @@
       "coverage": "right",
       "court_polygon": [
         [
-          494,
-          512
+          490,
+          519
         ],
         [
-          1376,
-          501
+          1382,
+          504
         ],
         [
-          1881,
-          1023
+          1756,
+          888
         ],
         [
-          50,
-          1028
+          148,
+          909
         ]
       ],
       "homography": "calibration/cam2_H.npy",
-      "calibration": "calibration/cam2.npy"
+      "calibration": "calibration/cam2.npy",
+      "flip_x": false,
+      "flip_y": false
     }
   ],
   "court_real_size": [
@@ -56,6 +60,7 @@
     10.0
   ],
   "net_x": 10.0,
+  "service_line_from_back": 3.0,
   "overlap_zone": [
     7.0,
     13.0
@@ -75,15 +80,20 @@
   },
   "model": "yolo11n-pose.pt",
   "detection": {
-    "conf": 0.25,
+    "conf": 0.2,
     "iou": 0.45,
     "device": "cpu",
-    "imgsz": 640
+    "imgsz": 1280,
+    "min_keypoints": 5,
+    "min_aspect": 1.0,
+    "kpt_conf": 0.3
   },
   "display": {
     "width": 960,
     "height": 540,
+    "minimap_height": 300,
     "loop_clips": true,
-    "show_fps": true
+    "show_fps": true,
+    "sync_feeds": true
   }
 }

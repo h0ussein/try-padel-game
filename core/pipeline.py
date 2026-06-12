@@ -19,14 +19,16 @@ import cv2
 import numpy as np
 
 from core.detector import PoseDetector
+from core.fusion import match_tracks_to_roster
 from core.tracker import Tracker
-from utils import colors, court_roi, jersey, skeleton
+from utils import colors, court_roi, homography, jersey, skeleton
 
 _OFFCOURT = (130, 130, 130)
 
 
 class CameraWorker(threading.Thread):
-    def __init__(self, cam_cfg, global_cfg, reid_extractor=None, players=None):
+    def __init__(self, cam_cfg, global_cfg, reid_extractor=None, players=None,
+                 sync_barrier=None):
         super().__init__(daemon=True)
         self.cam_name = cam_cfg.get("name", "cam")
         self.source = cam_cfg["source"]
@@ -34,10 +36,13 @@ class CameraWorker(threading.Thread):
         self.global_cfg = global_cfg
         self.reid = reid_extractor
         self.players = players or []
+        self.sync_barrier = sync_barrier   # keeps the two dev clips frame-aligned
         self.polygon = cam_cfg.get("court_polygon") or []
+        self.H = homography.load_homography(cam_cfg.get("homography"))
 
         self._lock = threading.Lock()
         self._latest = None          # latest annotated BGR frame
+        self._tracks_info = []        # latest per-track records (for cross-camera fusion)
         self._fps = 0.0
         self._running = threading.Event()
         self._running.set()
@@ -57,6 +62,10 @@ class CameraWorker(threading.Thread):
         with self._lock:
             return None if self._latest is None else self._latest.copy()
 
+    def tracks_info(self):
+        with self._lock:
+            return list(self._tracks_info)
+
     # --- worker thread ---
     def run(self):
         det_cfg = self.global_cfg.get("detection", {})
@@ -67,6 +76,9 @@ class CameraWorker(threading.Thread):
                 iou=det_cfg.get("iou", 0.45),
                 device=det_cfg.get("device", "cpu"),
                 imgsz=det_cfg.get("imgsz", 640),
+                min_keypoints=det_cfg.get("min_keypoints", 0),
+                min_aspect=det_cfg.get("min_aspect", 0.0),
+                kpt_conf=det_cfg.get("kpt_conf", 0.3),
             )
         except Exception as exc:  # noqa: BLE001 - report any init failure to main
             self.error = f"detector init failed: {exc}"
@@ -121,16 +133,22 @@ class CameraWorker(threading.Thread):
                 cv2.rectangle(frame, (x1, y1), (x2, y2), _OFFCOURT, 1)
                 cv2.circle(frame, (int(foot[0]), int(foot[1])), 5, (0, 0, 255), -1, cv2.LINE_AA)
 
-            # Jersey-color re-check: anchor each track to an enrolled player's NAME,
-            # so the label follows the jersey even when the tracker ID swaps.
+            # Accurate per-camera names: match each track to the enrolled roster by
+            # OSNet ReID — the SAME identity source the fused minimap uses, so the
+            # feed labels and the minimap agree. Falls back to jersey-only naming if
+            # the roster has no appearance signatures (i.e. not enrolled with ReID).
             track_jerseys = [jersey.jersey_color(frame, st.tlbr, st.kpts) for st in tracks]
-            names = (jersey.assign_names(track_jerseys, self.players)
-                     if self.players else [None] * len(tracks))
+            names = match_tracks_to_roster(
+                [st.smooth_feat for st in tracks], track_jerseys, self.players)
+            if self.players and all(n is None for n in names):
+                names = jersey.assign_names(track_jerseys, self.players)
 
-            # tracked players: stable color + name/ID + skeleton
+            # tracked players: stable color + name/ID + skeleton; build fusion records
+            feet, records = [], []
             for idx, st in enumerate(tracks):
                 color = colors.color_for_id(st.track_id)
-                label = names[idx] if names[idx] else f"ID {st.track_id}"
+                nm = names[idx] if names[idx] else f"ID {st.track_id}"
+                label = f"{nm}  {int(round(st.score * 100))}%"   # name + detection accuracy
                 skeleton.draw_bbox(frame, st.tlbr, st.score, color=color, label=label)
                 if st.kpts is not None:
                     skeleton.draw_skeleton(frame, st.kpts, color=color)
@@ -139,6 +157,16 @@ class CameraWorker(threading.Thread):
                     x1, y1, x2, y2 = st.tlbr
                     foot = ((x1 + x2) / 2.0, y2)
                 cv2.circle(frame, (int(foot[0]), int(foot[1])), 6, (0, 255, 0), -1, cv2.LINE_AA)
+                feet.append(foot)
+                cname, hsv = track_jerseys[idx]
+                records.append({"local_id": int(st.track_id), "name": names[idx],
+                                "jersey": cname, "hsv": list(hsv), "xy": None,
+                                "reid": None if st.smooth_feat is None else st.smooth_feat.copy()})
+
+            # Project feet through this camera's homography into the shared court frame.
+            if self.H is not None and feet:
+                for rec, (cx, cy) in zip(records, homography.pixel_to_court(self.H, feet)):
+                    rec["xy"] = (float(cx), float(cy))
 
             if poly_np is not None:
                 cv2.polylines(frame, [poly_np], True, (0, 255, 255), 2, cv2.LINE_AA)
@@ -151,5 +179,20 @@ class CameraWorker(threading.Thread):
 
             with self._lock:
                 self._latest = frame
+                self._tracks_info = records
 
+            # Keep both camera clips on the same frame index (so a player's position
+            # matches across cameras for fusion). The faster worker waits for the
+            # slower; if a worker dies the barrier breaks and both run solo.
+            if self.sync_barrier is not None:
+                try:
+                    self.sync_barrier.wait(timeout=5.0)
+                except threading.BrokenBarrierError:
+                    self.sync_barrier = None
+
+        if self.sync_barrier is not None:
+            try:
+                self.sync_barrier.abort()
+            except Exception:  # noqa: BLE001
+                pass
         cap.release()

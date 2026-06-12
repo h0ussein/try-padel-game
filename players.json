@@ -1,7 +1,7 @@
 {
   "players": [
     {
-      "name": "hussein",
+      "name": "p1",
       "jersey_color": "blue",
       "jersey_hsv": [
         111.0,
@@ -10,16 +10,7 @@
       ]
     },
     {
-      "name": "0",
-      "jersey_color": "blue",
-      "jersey_hsv": [
-        112.0,
-        102.0,
-        92.0
-      ]
-    },
-    {
-      "name": "jeffrey",
+      "name": "p2",
       "jersey_color": "gray",
       "jersey_hsv": [
         50.0,
@@ -28,12 +19,22 @@
       ]
     },
     {
-      "name": "blank",
+      "name": "p3",
       "jersey_color": "blue",
       "jersey_hsv": [
         111.0,
         155.0,
         112.0
+      ]
+    },
+
+    {
+      "name": "p4",
+      "jersey_color": "gray",
+      "jersey_hsv": [
+        44.0,
+        44.0,
+        102.0
       ]
     }
   ]

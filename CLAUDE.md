@@ -44,7 +44,7 @@ core/pipeline.py     per-camera worker loop                    [Step 1 ✓]
 core/detector.py     YOLOv11-Pose wrapper                      [Step 1 ✓]
 core/tracker.py      Deep-EIoU wrapper (motion+OSNet+keypoints)[Step 3 ✓]
 core/trackers/       vendored Deep-EIoU (STrack/KF/EIoU match)  [Step 3 ✓]
-core/fusion.py       cross-camera merge → global IDs           [Step 6 — accuracy gate]
+core/fusion.py       cross-camera merge → global IDs           [Step 6 ✓ — accuracy gate]
 core/actions.py      action detection (trained NN)             [Step 8]
 core/ball.py         ball detection + speed                    [Step 9]
 core/report.py       session logging + JSON/PDF                [Step 10]
@@ -52,8 +52,8 @@ utils/skeleton.py    COCO-17 drawing + HUD/FPS                 [Step 1 ✓]
 utils/court_roi.py   auto-detect/edit court polygon + foot filter [Step 2 ✓]
 utils/jersey.py      jersey color (HSV) + name match           [Step 4 ✓]
 utils/enrollment.py  player enrollment → players.json          [Step 4 ✓]
-utils/homography.py  calibration + pixel→court mapping         [Step 5]
-utils/court_view.py  live top-down minimap                     [Step 5]
+utils/homography.py  calibration + pixel→court mapping         [Step 5 ✓]
+utils/court_view.py  live top-down minimap                     [Step 5 ✓]
 utils/reid.py        OSNet embeddings (boxmot ReID)            [Step 3 ✓]
 utils/clips.py       auto-clip export                          [Step 10]
 utils/heatmap.py     position heatmap                          [Step 10]
@@ -100,16 +100,50 @@ at local clips; in production it is the RTSP URL.
   court position + fusion are for. Saturation bar raised so warm-lit white isn't called
   orange. Verified headless: per-player color is consistent across frames and names
   re-match; could not test the interactive enroll keypress/console flow.
-- Steps 5–11: not started (stubs in place). Next: Step 5 (dual homography + minimap).
+- **Step 5 — Dual Homography + Minimap — DONE.** `utils/homography.py`: `--setup-homography`
+  is a **4-click per-camera** calibration (2 NET posts + that camera's 2 BACK corners) with an
+  INSTANT reprojection preview (court drawn back on the frame; Y=accept/R=redo). Camera-aware:
+  cam0 back wall x=0, cam1 back wall x=L, net (x=net_x) shared → links the two halves.
+  `calibration/camN_H.npy`, `pixel_to_court` projection. CAMERA GEOMETRY (confirmed by user):
+  cameras are BEHIND the baselines, each sees ~50% (split at the net); the net is the shared
+  anchor. NOTE: fully-AUTOMATIC court-line detection was attempted (multi-approach) but is NOT
+  reliable on this dim/cluttered night footage (fence/glass/2 courts/raised net) — deferred as a
+  later goal; the 4-click + preview is the reliable path for these fixed cameras. The previous
+  13-named-point clicker + the service-line-3m-from-net assumption are GONE (service lines are
+  3 m from the BACK WALLS; key `service_line_from_back`).
+  `utils/court_view.py` `Minimap`: renders the real padel court (boundary, net, 2 service lines,
+  center service line) + projected player dots. Pipeline loads each cam's H, projects foot points,
+  publishes court positions; `main.py --show --minimap` tiles the shared minimap beneath the two
+  feeds (cam1 dots yellow, cam2 magenta). Geometry config-driven: `court_real_size`, `net_x`,
+  `service_line_gap` (spec says 3 m from net; real padel is ~6.95 m — adjust in config if needed).
+  Verified headless: template renders correctly, homography round-trips at 0.0 m error, feet
+  project inside the court. NOT yet calibrated (no .npy) — user must run `--setup-homography`
+  clicking the SAME physical points on BOTH cameras, else they don't share a frame and Step 6
+  fusion can't match. Could not test the interactive click calibration or live minimap window.
+- **Step 6 — Cross-Camera Fusion — DONE (ACCURACY GATE).** `core/fusion.py` `Fusion`:
+  (1) MERGES both cameras' tracks of the same physical player by shared court position
+  (primary) + jersey (soft cue) within `merge_dist`; (2) ASSIGNS stable GLOBAL ids by
+  matching merged observations to a persistent registry (court pos + jersey), behind a
+  `threading.Lock`; (3) enforces the global 4-player cap, time-based aging (`max_age_sec`,
+  rate-independent). Workers now publish `tracks_info()` (court xy + jersey + name + local
+  id); `main.py --show --minimap` runs fusion each frame and the minimap shows ONE dot per
+  GLOBAL player (per-gid color, enrolled name). Tuned `pos_alpha=0.6`, `match_dist=3.0` for
+  low-FPS movement. Verified headless: same player on both cams→1 id; a player crossing
+  cam0→overlap→cam1 with a local id swap 1→7 holds ONE global id across the handoff (the
+  user's exact bug); 2 players→2 ids; 6→capped at 4. REQUIRES `--setup-homography` done on
+  BOTH cams (shared frame) — else positions don't align and fusion mis-merges. The live
+  net-exchange test on the fused minimap is the user's hardware verification.
+- Steps 7–11: not started (stubs in place). Next: Step 7 (action data collection & labeling).
 
 ## How to run
 ```
 python -m venv venv
 venv\Scripts\activate          # Windows
 pip install -r requirements.txt      # includes boxmot (OSNet ReID + lapx)
-python main.py --setup-court   # Step 2: drag court corners per camera, S=save
-python main.py --enroll        # Step 4: digit-key a player, type name -> players.json
-python main.py --show          # 'q' or ESC to quit
+python main.py --setup-court      # Step 2: drag court corners per camera, S=save
+python main.py --setup-homography # Step 5: click SAME court points on BOTH cams -> H
+python main.py --enroll           # Step 4: digit-key a player, type name -> players.json
+python main.py --show --minimap   # 'q' or ESC to quit
 ```
 `yolo11n-pose.pt` + the OSNet ReID weights auto-download on first run. CPU is the
 default device (`detection.device` in config) — set to `cuda` if a GPU is available.
@@ -129,3 +163,15 @@ net-exchange ID swaps — those are fixed by fusion in Step 6. Verified headless
 Step 4: after `--enroll`, players are labeled by their real NAME in both feeds; the
 jersey color holds frame-to-frame, so when a tracker ID swaps the name re-attaches via
 the jersey re-check (vs flipping to `ID n`). Best with distinct, saturated shirts.
+Step 5: `--setup-homography` = 4 clicks/camera (2 NET posts + 2 BACK corners) with an instant
+court-fit preview (GREEN court / RED net drawn on the frame) — accept only if the drawn court
+sits on the real lines. Then `--show --minimap` shows the court template + dots. On-the-line
+test: a player on a known line lands on that line from EITHER camera. If cam1 & cam2 dots for the
+same player are MIRRORED, the user clicked opposite physical net posts as "LEFT" — redo one camera
+swapping left/right. (The per-camera preview can look perfect yet still be cross-mirrored; the
+fused minimap is what reveals it.)
+Step 6 (ACCURACY GATE): the fused minimap shows exactly ONE dot per player (correct name)
+through occlusion; a net-crossing that swapped IDs in one feed now HOLDS one global id
+because the other camera separates the players. Do not proceed to Step 7 until a real net
+exchange holds global IDs on the fused minimap; if it fails, fix homography accuracy /
+overlap matching / jersey gate here first.
