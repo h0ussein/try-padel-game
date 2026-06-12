@@ -10,8 +10,11 @@
 ultralytics==8.4.65        # YOLOv11-Pose detection + 17-keypoint skeleton
 opencv-python==4.13.0.92   # video I/O, undistort, homography, overlays, minimap
 numpy==2.4.6               # arrays, angles, distances
-torch==2.12.0              # YOLO + ReID + action models
+torch==2.12.0              # YOLO + ReID + action models (this pin is the CPU/dev build)
 torchvision==0.27.0        # required by ultralytics/boxmot; pin to match torch
+# GPU NOTE: on a CUDA server, replace the two pins above with a build matching your
+# NVIDIA driver, e.g.:  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# (re-running `pip install -r requirements.txt` would revert you to the CPU build).
 scipy==1.17.1              # Kalman (linalg) + linear-assignment fallback + jersey match
 
 # --- Step 3: tracking (Deep-EIoU) + ReID ---

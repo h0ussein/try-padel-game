@@ -18,6 +18,7 @@ import time
 import cv2
 import numpy as np
 
+from core.ball import BallDetector, BallTrack
 from core.detector import PoseDetector
 from core.fusion import match_tracks_to_roster
 from core.tracker import Tracker
@@ -39,10 +40,12 @@ class CameraWorker(threading.Thread):
         self.sync_barrier = sync_barrier   # keeps the two dev clips frame-aligned
         self.polygon = cam_cfg.get("court_polygon") or []
         self.H = homography.load_homography(cam_cfg.get("homography"))
+        self.ball_cfg = global_cfg.get("ball", {})
 
         self._lock = threading.Lock()
         self._latest = None          # latest annotated BGR frame
         self._tracks_info = []        # latest per-track records (for cross-camera fusion)
+        self._ball = None             # latest {"xy": court_xy, "kmh": speed} or None
         self._frame_no = 0            # processed-frame counter (for headless recording)
         self._fps = 0.0
         self._running = threading.Event()
@@ -71,6 +74,10 @@ class CameraWorker(threading.Thread):
     def frame_no(self):
         with self._lock:
             return self._frame_no
+
+    def ball(self):
+        with self._lock:
+            return self._ball
 
     # --- worker thread ---
     def run(self):
@@ -101,6 +108,18 @@ class CameraWorker(threading.Thread):
         loop_clips = self.global_cfg.get("display", {}).get("loop_clips", True)
         poly_np = (np.array(self.polygon, np.int32).reshape(-1, 1, 2)
                    if len(self.polygon) >= 3 else None)
+
+        ball_det = ball_track = None
+        if self.ball_cfg.get("enabled", False):
+            ball_det = BallDetector(
+                model_path=self.ball_cfg.get("model"), device=det_cfg.get("device", "cpu"),
+                conf=self.ball_cfg.get("conf", 0.25), imgsz=det_cfg.get("imgsz", 1280),
+                diff_thresh=self.ball_cfg.get("diff_thresh", 18),
+                min_area=self.ball_cfg.get("min_area", 10),
+                max_area=self.ball_cfg.get("max_area", 900),
+                min_circularity=self.ball_cfg.get("min_circularity", 0.45))
+            _bfps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+            ball_track = BallTrack(fps=_bfps if _bfps > 1 else 30.0)
 
         while self._running.is_set():
             t0 = time.perf_counter()
@@ -174,6 +193,26 @@ class CameraWorker(threading.Thread):
                 for rec, (cx, cy) in zip(records, homography.pixel_to_court(self.H, feet)):
                     rec["xy"] = (float(cx), float(cy))
 
+            # Ball: detect (motion+shape, or a trained model), draw it + km/h, project
+            # to court coords for the minimap. Players' boxes are excluded inside detect().
+            ball_pub = None
+            if ball_det is not None:
+                bp = ball_det.detect(frame, player_boxes=[d.bbox for d in detections],
+                                     polygon=self.polygon)
+                bxy = None
+                if bp is not None:
+                    cv2.circle(frame, (int(bp[0]), int(bp[1])), 12, (0, 255, 255), 2, cv2.LINE_AA)
+                    if self.H is not None:
+                        cc = homography.pixel_to_court(self.H, [(bp[0], bp[1])])
+                        if len(cc):
+                            bxy = (float(cc[0][0]), float(cc[0][1]))
+                smoothed, kmh = ball_track.update(bxy)
+                if bp is not None and kmh > 0:
+                    cv2.putText(frame, f"{kmh:.0f} km/h", (int(bp[0]) + 14, int(bp[1]) - 12),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA)
+                if smoothed is not None:
+                    ball_pub = {"xy": smoothed, "kmh": kmh}
+
             if poly_np is not None:
                 cv2.polylines(frame, [poly_np], True, (0, 255, 255), 2, cv2.LINE_AA)
 
@@ -186,6 +225,7 @@ class CameraWorker(threading.Thread):
             with self._lock:
                 self._latest = frame
                 self._tracks_info = records
+                self._ball = ball_pub
                 self._frame_no += 1
 
             # Keep both camera clips on the same frame index (so a player's position

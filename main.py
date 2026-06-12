@@ -29,6 +29,30 @@ from utils.court_view import Minimap
 from utils.reid import build_reid
 
 
+def resolve_device(requested=None):
+    """Resolve the compute device ONCE so BOTH models (YOLOv11-Pose + OSNet ReID) use
+    the same one. 'auto'/None -> CUDA if available else CPU. 'cuda'/'gpu'/'0' -> CUDA,
+    but cleanly falls back to CPU (with a warning) if CUDA isn't available. 'cpu'
+    forces CPU. The result is written back to config.json's detection.device, which is
+    what the detector (core/pipeline) and the ReID extractor (utils/reid) both read."""
+    try:
+        import torch
+        has_cuda = bool(torch.cuda.is_available())
+    except Exception:  # noqa: BLE001 - torch missing/broken -> CPU
+        has_cuda = False
+    r = str(requested).strip().lower() if requested is not None else "auto"
+    if r in ("", "auto", "none"):
+        return "cuda" if has_cuda else "cpu"
+    if r == "cpu":
+        return "cpu"
+    if r in ("cuda", "gpu", "0") or r.startswith("cuda:"):
+        if has_cuda:
+            return r if r.startswith("cuda:") else "cuda"
+        print("[device] CUDA requested but not available — using CPU.", file=sys.stderr)
+        return "cpu"
+    return r
+
+
 def compose_canvas(frames, names, pane_w, pane_h):
     """Tile the per-camera annotated frames side by side into ONE image so both
     feeds share a single window. Missing frames render as a 'loading' placeholder.
@@ -81,6 +105,21 @@ def build_canvas(frames, workers, names, dw, dh, minimap, fusion, flips, court_L
         dots = [(g["xy"][0], g["xy"][1], colors.color_for_id(g["gid"]),
                  g["name"] or f"P{g['gid']}") for g in fused]
         mm = minimap.render(dots)
+        for ci, w in enumerate(workers):        # ball on the minimap (whichever cam sees it)
+            b = w.ball()
+            if b and b.get("xy") is not None:
+                bx, by = b["xy"]
+                if flips[ci]["x"]:
+                    bx = court_L - bx
+                if flips[ci]["y"]:
+                    by = court_W - by
+                bpx = minimap.to_px(bx, by)
+                cv2.circle(mm, bpx, 5, (0, 255, 255), -1, cv2.LINE_AA)
+                cv2.circle(mm, bpx, 5, (0, 0, 0), 1, cv2.LINE_AA)
+                if b.get("kmh", 0) > 0:
+                    cv2.putText(mm, f"{b['kmh']:.0f} km/h", (bpx[0] + 7, bpx[1] - 7),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
+                break
         mw = min(int(mm.shape[1] * mm_h / mm.shape[0]), canvas.shape[1])
         mm = cv2.resize(mm, (mw, mm_h))
         strip = np.zeros((mm_h, canvas.shape[1], 3), np.uint8)
@@ -100,9 +139,14 @@ def record(workers, names, dw, dh, minimap, fusion, flips, court_L, court_W, mm_
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = None
     last, written = -1, 0
+    reported = set()
     print(f"[record] writing annotated video to {out_path} at {fps:.0f} fps (headless, no window)...")
     try:
         while True:
+            for w in workers:                       # surface worker init/open failures
+                if w.error and w.cam_name not in reported:
+                    print(f"[record] ERROR [{w.cam_name}]: {w.error}", file=sys.stderr)
+                    reported.add(w.cam_name)
             cur = min((w.frame_no for w in workers), default=-1)
             frames = [w.latest() for w in workers]
             ready = cur > last and all(f is not None for f in frames)
@@ -125,6 +169,10 @@ def record(workers, names, dw, dh, minimap, fusion, flips, court_L, court_W, mm_
     finally:
         if writer is not None:
             writer.release()
+    if written == 0:
+        print("[record] WROTE 0 FRAMES — the cameras produced nothing. Check that each "
+              "cameras[].source in config.json points to a file/stream that exists and opens "
+              "(see ERROR lines above).", file=sys.stderr)
     print(f"[record] DONE — wrote {written} frames -> {out_path}")
 
 
@@ -234,6 +282,12 @@ def main():
         print(f"ERROR: config must define exactly 2 cameras, found {len(cameras)}. "
               "This system has no single-camera path.", file=sys.stderr)
         return 2
+
+    # Resolve the compute device ONCE (auto = CUDA if available, else CPU) and apply it
+    # to BOTH models: the detector and the OSNet ReID both read detection.device.
+    dev_cfg = cfg.setdefault("detection", {})
+    dev_cfg["device"] = resolve_device(dev_cfg.get("device"))
+    print(f"[init] compute device: {dev_cfg['device']}")
 
     if args.setup_court:
         setup_court(cfg, args.config)

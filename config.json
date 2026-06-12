@@ -82,11 +82,20 @@
   "detection": {
     "conf": 0.2,
     "iou": 0.45,
-    "device": "cpu",
+    "device": "auto",
     "imgsz": 1280,
     "min_keypoints": 5,
     "min_aspect": 1.0,
     "kpt_conf": 0.3
+  },
+  "ball": {
+    "enabled": true,
+    "model": "models/ball_yolo.pt",
+    "conf": 0.25,
+    "diff_thresh": 18,
+    "min_area": 10,
+    "max_area": 900,
+    "min_circularity": 0.45
   },
   "display": {
     "width": 960,
