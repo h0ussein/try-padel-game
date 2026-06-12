@@ -1,5 +1,5 @@
 # Padel CV System — Python dependencies (Section 2.6 of the roadmap)
-# Pinned to the verified working environment: Python 3.13, Windows, CPU.
+# Pinned to the verified working environment: Python 3.12.6, Windows, CPU.
 # Install:  pip install -r requirements.txt
 #
 # NOTE: Deep-EIoU is VENDORED in core/trackers/ (boxmot does NOT ship Deep-EIoU).

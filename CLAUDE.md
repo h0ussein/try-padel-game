@@ -143,7 +143,8 @@ pip install -r requirements.txt      # includes boxmot (OSNet ReID + lapx)
 python main.py --setup-court      # Step 2: drag court corners per camera, S=save
 python main.py --setup-homography # Step 5: click SAME court points on BOTH cams -> H
 python main.py --enroll           # Step 4: digit-key a player, type name -> players.json
-python main.py --show --minimap   # 'q' or ESC to quit
+python main.py --show --minimap   # 'q' or ESC to quit; 'f' = one camera full-size; 1-4 = flip minimap axes
+python main.py --save-video --minimap --output output/out.mp4   # HEADLESS: write annotated mp4 (servers/GPU, no window)
 ```
 `yolo11n-pose.pt` + the OSNet ReID weights auto-download on first run. CPU is the
 default device (`detection.device` in config) — set to `cuda` if a GPU is available.

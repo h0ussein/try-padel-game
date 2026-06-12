@@ -43,6 +43,7 @@ class CameraWorker(threading.Thread):
         self._lock = threading.Lock()
         self._latest = None          # latest annotated BGR frame
         self._tracks_info = []        # latest per-track records (for cross-camera fusion)
+        self._frame_no = 0            # processed-frame counter (for headless recording)
         self._fps = 0.0
         self._running = threading.Event()
         self._running.set()
@@ -65,6 +66,11 @@ class CameraWorker(threading.Thread):
     def tracks_info(self):
         with self._lock:
             return list(self._tracks_info)
+
+    @property
+    def frame_no(self):
+        with self._lock:
+            return self._frame_no
 
     # --- worker thread ---
     def run(self):
@@ -180,6 +186,7 @@ class CameraWorker(threading.Thread):
             with self._lock:
                 self._latest = frame
                 self._tracks_info = records
+                self._frame_no += 1
 
             # Keep both camera clips on the same frame index (so a player's position
             # matches across cameras for fusion). The faster worker waits for the

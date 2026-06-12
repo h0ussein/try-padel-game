@@ -50,6 +50,84 @@ def compose_canvas(frames, names, pane_w, pane_h):
     return out
 
 
+def build_canvas(frames, workers, names, dw, dh, minimap, fusion, flips, court_L,
+                 court_W, mm_h, now, view_mode=0):
+    """Compose the full output image: the two annotated feeds (or one full-size when
+    view_mode>0) with the fused minimap strip beneath. Shared by the live window and
+    the headless recorder so both look identical."""
+    if view_mode == 0:
+        canvas = compose_canvas(frames, names, dw, dh)
+    else:
+        sel = frames[view_mode - 1]
+        big = (int(dw * 1.6), int(dh * 1.6))
+        canvas = (cv2.resize(sel, big) if sel is not None
+                  else np.zeros((big[1], big[0], 3), np.uint8))
+    if minimap is not None:
+        cam_tracks = []
+        for ci, w in enumerate(workers):
+            recs = []
+            for r in w.tracks_info():
+                rr = dict(r, cam=ci)
+                if rr.get("xy") is not None:
+                    x, y = rr["xy"]
+                    if flips[ci]["x"]:
+                        x = court_L - x
+                    if flips[ci]["y"]:
+                        y = court_W - y
+                    rr["xy"] = (x, y)
+                recs.append(rr)
+            cam_tracks.append(recs)
+        fused = fusion.update(cam_tracks, now)
+        dots = [(g["xy"][0], g["xy"][1], colors.color_for_id(g["gid"]),
+                 g["name"] or f"P{g['gid']}") for g in fused]
+        mm = minimap.render(dots)
+        mw = min(int(mm.shape[1] * mm_h / mm.shape[0]), canvas.shape[1])
+        mm = cv2.resize(mm, (mw, mm_h))
+        strip = np.zeros((mm_h, canvas.shape[1], 3), np.uint8)
+        x0 = (canvas.shape[1] - mw) // 2
+        strip[:, x0:x0 + mw] = mm
+        canvas = np.vstack([canvas, strip])
+    return canvas
+
+
+def record(workers, names, dw, dh, minimap, fusion, flips, court_L, court_W, mm_h,
+           out_path, fps, max_frames=None):
+    """Headless recording: write ONE output frame per processed frame to an .mp4 (no
+    GUI — for servers / virtual GPUs). Stops when the source clips end, or after
+    max_frames (use that for never-ending live RTSP streams)."""
+    import os
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = None
+    last, written = -1, 0
+    print(f"[record] writing annotated video to {out_path} at {fps:.0f} fps (headless, no window)...")
+    try:
+        while True:
+            cur = min((w.frame_no for w in workers), default=-1)
+            frames = [w.latest() for w in workers]
+            ready = cur > last and all(f is not None for f in frames)
+            if ready:
+                canvas = build_canvas(frames, workers, names, dw, dh, minimap, fusion,
+                                      flips, court_L, court_W, mm_h, now=cur / fps, view_mode=0)
+                if writer is None:
+                    h, wd = canvas.shape[:2]
+                    writer = cv2.VideoWriter(out_path, fourcc, fps, (wd, h))
+                writer.write(canvas)
+                written += 1
+                last = cur
+                if written % 50 == 0:
+                    print(f"[record] {written} frames written...")
+                if max_frames and written >= max_frames:
+                    break
+            if not any(w.is_alive() for w in workers) and not ready:
+                break
+            time.sleep(0.003)
+    finally:
+        if writer is not None:
+            writer.release()
+    print(f"[record] DONE — wrote {written} frames -> {out_path}")
+
+
 def load_config(path):
     with open(path, "r", encoding="utf-8") as fh:
         return json.load(fh)
@@ -138,6 +216,12 @@ def parse_args():
     p.add_argument("--enroll", action="store_true", help="(Step 4) enroll players")
     p.add_argument("--collect", action="store_true", help="(Step 7) save keypoint windows")
     p.add_argument("--save-report", action="store_true", help="(Step 10) write session report")
+    p.add_argument("--save-video", action="store_true",
+                   help="HEADLESS: write the annotated output to an .mp4 (no window — for servers/GPU)")
+    p.add_argument("--output", default="output/output.mp4",
+                   help="output .mp4 path for --save-video")
+    p.add_argument("--max-frames", type=int, default=None,
+                   help="stop --save-video after N frames (use for never-ending live RTSP streams)")
     return p.parse_args()
 
 
@@ -168,6 +252,10 @@ def main():
         if getattr(args, stub):
             print(f"[note] --{stub.replace('_', '-')} is not implemented yet "
                   f"(later step). Running detection display.")
+
+    # Headless recording processes each clip ONCE (no looping) so the .mp4 is finite.
+    if args.save_video:
+        cfg.setdefault("display", {})["loop_clips"] = False
 
     # Pre-download the weights once on the main thread so the two workers don't
     # race the first-run download.
@@ -228,6 +316,24 @@ def main():
 
     mm_h = int(disp.get("minimap_height", 300)) if minimap is not None else 0
     feeds_w = len(workers) * dw + 4 * (len(workers) - 1)
+
+    # --- headless: write annotated .mp4 and exit (no GUI) ---
+    if args.save_video:
+        probe = cv2.VideoCapture(cameras[0]["source"])
+        out_fps = probe.get(cv2.CAP_PROP_FPS) or 25.0
+        probe.release()
+        if out_fps < 1:
+            out_fps = 25.0
+        try:
+            record(workers, names, dw, dh, minimap, fusion, flips, court_L, court_W,
+                   mm_h, args.output, out_fps, args.max_frames)
+        finally:
+            for w in workers:
+                w.stop()
+            for w in workers:
+                w.join(timeout=2.0)
+        return 0
+
     win = "Padel CV - dual camera"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
     ww = min(feeds_w, 1760)
@@ -251,39 +357,8 @@ def main():
                 return 1
 
             frames = [w.latest() for w in workers]
-            if view_mode == 0:
-                canvas = compose_canvas(frames, names, dw, dh)
-            else:                                   # one camera, larger (clearer)
-                sel = frames[view_mode - 1]
-                big = (int(dw * 1.6), int(dh * 1.6))
-                canvas = (cv2.resize(sel, big) if sel is not None
-                          else np.zeros((big[1], big[0], 3), np.uint8))
-            if minimap is not None:
-                cam_tracks = []
-                for ci, w in enumerate(workers):
-                    recs = []
-                    for r in w.tracks_info():
-                        rr = dict(r, cam=ci)
-                        if rr.get("xy") is not None:
-                            x, y = rr["xy"]
-                            if flips[ci]["x"]:
-                                x = court_L - x
-                            if flips[ci]["y"]:
-                                y = court_W - y
-                            rr["xy"] = (x, y)
-                        recs.append(rr)
-                    cam_tracks.append(recs)
-                fused = fusion.update(cam_tracks, time.perf_counter())
-                dots = [(g["xy"][0], g["xy"][1], colors.color_for_id(g["gid"]),
-                         g["name"] or f"P{g['gid']}") for g in fused]
-                # small minimap strip, centered, beneath the (now-dominant) feeds
-                mm = minimap.render(dots)
-                mw = min(int(mm.shape[1] * mm_h / mm.shape[0]), canvas.shape[1])
-                mm = cv2.resize(mm, (mw, mm_h))
-                strip = np.zeros((mm_h, canvas.shape[1], 3), np.uint8)
-                x0 = (canvas.shape[1] - mw) // 2
-                strip[:, x0:x0 + mw] = mm
-                canvas = np.vstack([canvas, strip])
+            canvas = build_canvas(frames, workers, names, dw, dh, minimap, fusion,
+                                  flips, court_L, court_W, mm_h, time.perf_counter(), view_mode)
             cv2.imshow(win, canvas)
 
             key = cv2.waitKey(1) & 0xFF
